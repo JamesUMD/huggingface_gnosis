@@ -1,8 +1,7 @@
 """One-command bootstrap + run for the AI Transformation Office app.
 
 Usage:
-    python run.py             # bootstrap + launch Gradio on http://localhost:7860
-    python run.py --share     # also create a public *.gradio.live tunnel
+    python run.py             # bootstrap + launch Reflex (localhost:3000)
     python run.py --reset-db  # drop and re-seed data/app.db
     python run.py --no-run    # bootstrap only
 
@@ -12,7 +11,8 @@ What it does:
     3. Verifies .env has an Anthropic-compatible API key
     4. Seeds data/app.db if it's missing (otherwise applies an additive
        migration so any new tables are created without dropping data)
-    5. Launches `python app.py` (Gradio)
+    5. Runs `reflex init` (idempotent, only acts on first launch)
+    6. Starts `reflex run` — frontend on :3000, backend on :8000
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ REQUIREMENTS = ROOT / "requirements.txt"
 
 IS_WINDOWS = platform.system() == "Windows"
 PYTHON_BIN = VENV / ("Scripts/python.exe" if IS_WINDOWS else "bin/python")
-APP_PY = ROOT / "app.py"
+REFLEX_BIN = VENV / ("Scripts/reflex.exe" if IS_WINDOWS else "bin/reflex")
 
 
 # ----- pretty -----------------------------------------------------------
@@ -129,17 +129,27 @@ def seed_db(reset: bool) -> None:
     _ok(f"seeded {DB.relative_to(ROOT)}")
 
 
-def gradio_run(share: bool) -> None:
-    _step("Starting Gradio app")
-    print("  Local URL  → http://localhost:7860")
-    if share:
-        print("  Public URL → printed once Gradio uploads to share.gradio.live")
+def reflex_init() -> None:
+    _step("Reflex first-time init")
+    if (ROOT / ".web").exists():
+        _ok(".web/ exists - skipping init")
+        return
+    if not REFLEX_BIN.exists():
+        _fail(f"reflex CLI missing at {REFLEX_BIN}")
+        sys.exit(1)
+    subprocess.check_call(
+        [str(REFLEX_BIN), "init", "--template", "blank"],
+        cwd=ROOT,
+    )
+    _ok("reflex initialized")
+
+
+def reflex_run() -> None:
+    _step("Starting Reflex dev server")
+    print("  Frontend -> http://localhost:3000")
+    print("  Backend  -> http://localhost:8000")
     print("  Press Ctrl+C to stop.\n")
-    env = os.environ.copy()
-    if share:
-        env["GRADIO_SHARE"] = "1"
-    # Replace this process so Ctrl+C stops Gradio cleanly.
-    os.execvpe(str(PYTHON_BIN), [str(PYTHON_BIN), str(APP_PY)], env)
+    os.execv(str(REFLEX_BIN), [str(REFLEX_BIN), "run"])  # replaces this process
 
 
 # ----- main -------------------------------------------------------------
@@ -150,8 +160,6 @@ def main() -> None:
                    help="Drop and re-seed data/app.db")
     p.add_argument("--no-run", action="store_true",
                    help="Bootstrap everything but don't start the server")
-    p.add_argument("--share", action="store_true",
-                   help="Launch Gradio with a public *.gradio.live tunnel")
     args = p.parse_args()
 
     print("\033[1mAI Transformation Office - bootstrap\033[0m")
@@ -160,11 +168,12 @@ def main() -> None:
     install_deps()
     check_env()
     seed_db(reset=args.reset_db)
+    reflex_init()
 
     if args.no_run:
         _ok("Bootstrap complete. Run `python run.py` to start the app.")
         return
-    gradio_run(share=args.share)
+    reflex_run()
 
 
 if __name__ == "__main__":

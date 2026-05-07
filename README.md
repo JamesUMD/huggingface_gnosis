@@ -3,16 +3,16 @@ title: AI Transformation Office
 emoji: 🤖
 colorFrom: blue
 colorTo: indigo
-sdk: gradio
-sdk_version: 6.14.0
-python_version: '3.13'
-app_file: app.py
+sdk: docker
+app_port: 7860
 pinned: false
 ---
 
 # AI Transformation Office
 
-A Gradio web app pairing a Strands-powered orchestrator agent with a metrics dashboard, backed by a synthetic SQLite database. The orchestrator routes questions to three specialist agents (customers, revenue, operations), and the ML Studio runs quick AutoML experiments (Random Forest vs XGBoost) against any of the source tables.
+A Reflex (Python) web app pairing a Strands-powered orchestrator agent with a metrics dashboard, backed by a synthetic SQLite database. The orchestrator routes questions to three specialist agents (customers, revenue, operations), and the ML Studio runs quick AutoML experiments (Random Forest vs XGBoost) against any of the source tables.
+
+**Live demo (HF Spaces, Docker SDK):** https://JamesUMD23-ai-transformation-office.hf.space
 
 ## Quick start (one command)
 
@@ -25,18 +25,19 @@ That script:
 1. Creates `./venv` if it doesn't exist
 2. Installs everything in `requirements.txt`
 3. Seeds `data/app.db` with synthetic data (only on first run)
-4. Launches the Gradio app
+4. Runs `reflex init` (only on first run)
+5. Launches `reflex run`
 
 When it's running:
 
-- Local URL → http://localhost:7860
+- Frontend → http://localhost:3000
+- Backend → http://localhost:8000
 
 Press **Ctrl+C** to stop.
 
 ### Useful flags
 
 ```bash
-python run.py --share     # also expose a public *.gradio.live tunnel
 python run.py --reset-db  # drop and re-seed app.db
 python run.py --no-run    # bootstrap only, don't start the app
 ```
@@ -63,14 +64,12 @@ All three names work — the agent factory falls back across them. If the chat r
 
 ## App tour
 
-The app is a single Gradio page with four tabs:
-
-| Tab | What's there |
+| Route | What's there |
 |---|---|
-| **Dashboard** | Orchestrator chat (left) + KPIs / 30-day revenue chart / MRR-by-tier bar chart / top industries (right). |
-| **Agent Core** | Lists all created agents in a table. **+ New Agent** form (name · bound table · description · persona). |
-| **Chat with Agent** | Pick a created agent from a dropdown to load its details and have a conversation with that single-table specialist. |
-| **ML Studio** | Lists all trained models. **+ New Model** form (name · source table · model type — RandomForest / XGBoost / **AutoML**). |
+| `/` | Executive Dashboard. Left: chat with the orchestrator (routes to specialists). Right: KPIs, 30-day revenue chart, customer mix by tier, top industries. |
+| `/agent-core` | Lists user-created agents. **+ New Agent** dialog (name · bound table · description · persona). Click an agent name to open its detail page. |
+| `/ml-studio` | Lists user-trained ML models. **+ New Model** dialog (name · source table · model type — RandomForest / XGBoost / **AutoML**). |
+| `/chat/[agent_id]` | Single-agent detail + chat. Shows description, capability, bound table, persona, and a streaming chat with the specialist. |
 
 ### Architecture
 
@@ -104,69 +103,54 @@ The orchestrator's three specialists:
 
 ```
 .
-├── app.py                       # Gradio frontend (the entry point)
-├── run.py                       # one-command bootstrap + launcher
+├── rxconfig.py                  # Reflex config
+├── Dockerfile                   # HF Spaces / any Docker host (single-port)
+├── run.py                       # one-command bootstrap + local launcher
 ├── requirements.txt
 ├── .env                         # your API key (gitignored)
 ├── .env.example                 # template
 ├── data/
 │   ├── seed.py                  # builds + seeds app.db
 │   └── app.db                   # generated
-├── ato_app/                     # business logic (framework-agnostic)
+├── ato_app/
+│   ├── ato_app.py               # rx.App entry, registers routes
+│   ├── state.py                 # global Reflex State
 │   ├── db.py                    # SQLAlchemy engine + auto-seed/migrate
+│   ├── theme.py                 # design tokens
+│   ├── components/              # header, metric_card, status_badge, hero_icon
+│   ├── pages/                   # home, agent_core, ml_studio, chat
 │   ├── agents/factory.py        # build_orchestrator_agent / build_agent_for_table
 │   ├── agents/tools.py          # run_sql, describe_table, forecast
 │   └── ml/forecasters.py        # linear / RF / ARIMA / AutoML
-├── docs/
-│   ├── architecture/generate.py # Graphviz diagram script
-│   └── screenshots/             # reference designs
-└── ato_architecture.png         # rendered system diagram
+└── docs/architecture/generate.py # Graphviz diagram script
 ```
 
 ## Deploy to a public URL
 
-You have three easy paths.
+This repo deploys to Hugging Face Spaces via the **Docker SDK** (the YAML at the top of this README sets `sdk: docker` and `app_port: 7860`).
 
-### Option A — `--share` flag (fastest, no signup)
-
-```bash
-python run.py --share
-```
-
-Gradio uploads to its own tunnel service and prints a `https://<random>.gradio.live` URL valid for 72 hours. Best for quick demos.
-
-**Caveats**: anonymous URL is publicly accessible while it's up; resets when you stop the process; not suitable for sensitive data.
-
-### Option B — Hugging Face Spaces (free, persistent, public)
-
-1. Create a new Space at https://huggingface.co/new-space
-   - **SDK**: choose **Gradio**
-   - **Space hardware**: free CPU is fine for this app
+1. Create a Space at https://huggingface.co/new-space
+   - **SDK**: choose **Docker**
+   - **Hardware**: CPU Basic (free) is enough
 2. Push this repo to the Space's git remote:
-   ```bash
+   ```powershell
    git remote add hf https://huggingface.co/spaces/<your-user>/<space-name>
    git push hf main
    ```
-3. In the Space settings → **Variables and secrets**, add a secret named `CLAUDE_API_KEY` (or `ANTHROPIC_API_KEY` / `STRANDS_API_KEY`) with your Anthropic key. **Never commit `.env`** — that's why it's gitignored.
-4. Spaces will auto-detect Gradio, install `requirements.txt`, and run `app.py`. First build takes ~3–5 minutes.
+3. In the Space's **Settings → Variables and secrets**, add a secret named `CLAUDE_API_KEY` (or `ANTHROPIC_API_KEY` / `STRANDS_API_KEY`) with your Anthropic key. **Never commit `.env`** — it's gitignored.
+4. Spaces builds the container from the `Dockerfile` (~6–10 min for the first build because Reflex installs Node + builds the frontend bundle) and starts it with `reflex run --env=prod --single-port --backend-host=0.0.0.0 --backend-port=7860`.
 
-The space gets a permanent URL like `https://huggingface.co/spaces/<your-user>/<space-name>` and a direct embed at `https://<your-user>-<space-name>.hf.space`.
+The Space ends up at `https://<your-user>-<space-name>.hf.space`.
 
-**Caveats**: free tier sleeps after 48 h of inactivity; SQLite resets every time the Space restarts (created agents and trained models are lost). For persistence, upgrade to a paid Space or migrate to Postgres.
+**Caveats**: free Spaces sleep after 48 h of inactivity. SQLite resets when the Space restarts (your created agents and trained models are lost) — paid hardware tiers or migrating to Postgres give you persistence.
 
-### Option C — Self-host (Docker / VPS / Render / Fly.io)
+### Self-host elsewhere
 
-The app is a single `python app.py` that listens on `$PORT` (default 7860). Any platform that runs Python can host it. Set `STRANDS_API_KEY` (or one of the alternates) as an environment variable. A minimal Dockerfile would be:
+The same Dockerfile works on any container host (Render, Fly.io, EC2, GCP Cloud Run). Just:
 
-```dockerfile
-FROM python:3.12-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-ENV PORT=7860
-EXPOSE 7860
-CMD ["python", "app.py"]
+```bash
+docker build -t ato .
+docker run -p 7860:7860 -e CLAUDE_API_KEY=sk-ant-... ato
 ```
 
 ## Troubleshooting
@@ -174,8 +158,8 @@ CMD ["python", "app.py"]
 **Chat replies with `⚠️ Anthropic API rejected the request: your account has no credit`**
 Top up at https://console.anthropic.com/settings/billing. The key is fine; the account is empty.
 
-**`Address already in use` on port 7860**
-Stop the previous instance, or set `PORT=7861 python app.py`.
+**`Address already in use` on ports 3000 / 8000**
+Stop the previous instance, or change `frontend_port` / `backend_port` in `rxconfig.py`.
 
 **ML Studio "+ New Model" trains but accuracy looks identical across runs of the same model type**
 That's expected — all training is seeded with `random_state=42`, so the same `(model_type, source_table)` pair gives the same number every time. Different combinations *do* give different numbers.
@@ -191,7 +175,8 @@ python -m venv venv
 # source venv/bin/activate         # macOS/Linux
 pip install -r requirements.txt
 python data/seed.py                # only the first time
-python app.py
+reflex init --template blank       # only the first time
+reflex run
 ```
 
 > Configuration reference: https://huggingface.co/docs/hub/spaces-config-reference
