@@ -65,56 +65,33 @@ def _message_bubble(msg: dict) -> rx.Component:
     )
 
 
-def _chat_panel() -> rx.Component:
+def _orchestrator_chat_panel() -> rx.Component:
+    """Home-page chat panel bound to the orchestrator (home_* state)."""
     return rx.vstack(
-        # Header row — orchestrator on home, single-table specialist on /chat/[id]
         rx.hstack(
             rx.vstack(
                 rx.text("Conversation", font_weight="600", color=TEXT_PRIMARY),
-                rx.cond(
-                    State.use_orchestrator,
-                    rx.text(
-                        "Orchestrator agent — routes questions across "
-                        "customers, revenue, and agent-fleet specialists.",
-                        font_size="12px",
-                        color=TEXT_MUTED,
-                    ),
-                    rx.text(
-                        "Specialist agent bound to a single table.",
-                        font_size="12px",
-                        color=TEXT_MUTED,
-                    ),
+                rx.text(
+                    "Orchestrator agent — routes questions across "
+                    "customers, revenue, and operations specialists.",
+                    font_size="12px",
+                    color=TEXT_MUTED,
                 ),
                 spacing="0",
                 align="start",
             ),
             rx.spacer(),
-            rx.cond(
-                State.use_orchestrator,
-                rx.box(
-                    rx.text(
-                        "Orchestrator",
-                        font_size="12px",
-                        font_weight="500",
-                        color="#1E40AF",
-                    ),
-                    background="#DBEAFE",
-                    padding="2px 10px",
-                    border_radius="9999px",
-                    display="inline-block",
+            rx.box(
+                rx.text(
+                    "Orchestrator",
+                    font_size="12px",
+                    font_weight="500",
+                    color="#1E40AF",
                 ),
-                rx.box(
-                    rx.text(
-                        State.bound_table,
-                        font_size="12px",
-                        font_weight="500",
-                        color="#475569",
-                    ),
-                    background="#F1F5F9",
-                    padding="2px 10px",
-                    border_radius="9999px",
-                    display="inline-block",
-                ),
+                background="#DBEAFE",
+                padding="2px 10px",
+                border_radius="9999px",
+                display="inline-block",
             ),
             width="100%",
             align="center",
@@ -124,7 +101,7 @@ def _chat_panel() -> rx.Component:
         # Messages
         rx.box(
             rx.cond(
-                State.messages.length() == 0,
+                State.home_messages.length() == 0,
                 rx.center(
                     rx.vstack(
                         rx.text(
@@ -149,7 +126,7 @@ def _chat_panel() -> rx.Component:
                     ),
                     height="100%",
                 ),
-                rx.foreach(State.messages, _message_bubble),
+                rx.foreach(State.home_messages, _message_bubble),
             ),
             flex="1",
             overflow_y="auto",
@@ -160,23 +137,23 @@ def _chat_panel() -> rx.Component:
         rx.form(
             rx.hstack(
                 rx.input(
-                    placeholder="Ask the agent…",
-                    value=State.chat_input,
-                    on_change=State.set_chat_input,
+                    placeholder="Ask the orchestrator…",
+                    value=State.home_chat_input,
+                    on_change=State.set_home_chat_input,
                     flex="1",
                     size="3",
-                    disabled=State.chat_busy,
+                    disabled=State.home_chat_busy,
                 ),
                 rx.button(
-                    rx.cond(State.chat_busy, "…", "Send"),
+                    rx.cond(State.home_chat_busy, "…", "Send"),
                     type="submit",
                     size="3",
-                    disabled=State.chat_busy,
+                    disabled=State.home_chat_busy,
                 ),
                 width="100%",
                 spacing="2",
             ),
-            on_submit=State.submit_chat,
+            on_submit=State.submit_home_chat,
             width="100%",
             reset_on_submit=False,
         ),
@@ -492,7 +469,7 @@ def home() -> rx.Component:
         _nav(),
         rx.box(
             rx.flex(
-                rx.box(_chat_panel(), flex="1", min_width="0"),
+                rx.box(_orchestrator_chat_panel(), flex="1", min_width="0"),
                 rx.box(_dashboard(), flex="1.4", min_width="0"),
                 spacing="3",
                 wrap="wrap",

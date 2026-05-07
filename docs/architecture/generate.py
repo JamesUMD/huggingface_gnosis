@@ -26,6 +26,7 @@ from diagrams.aws.database import RDS
 from diagrams.aws.ml import Sagemaker
 from diagrams.generic.blank import Blank
 from diagrams.onprem.client import User
+from diagrams.onprem.container import Docker
 from diagrams.programming.framework import React
 from diagrams.programming.language import Python
 
@@ -54,14 +55,16 @@ with Diagram(
 ):
     # ------- Frontend -------
     user = User("Operator")
-    with Cluster("Browser  (Reflex SPA, http://localhost:3000)"):
+    with Cluster("Browser  (Reflex SPA)"):
         ui_home = React("/  Home  (chat + dashboard)")
         ui_agents = React("/agent-core  (agents + dialog)")
         ui_ml = React("/ml-studio  (models + train dialog)")
         ui_chat = React("/chat/[agent_id]  (detail + chat)")
 
     # ------- Reflex backend -------
-    with Cluster("Reflex Backend  (Python · Granian @ :8000)"):
+    # local dev: frontend :3000 + backend :8000
+    # HF Spaces (Docker): single-port 7860 via `reflex run --env=prod --single-port`
+    with Cluster("Reflex Backend  (Python · Granian)\nlocal: :3000 + :8000   ·   HF Docker: :7860 single-port"):
         state = Python("rx.State\n(load_dashboard,\nsubmit_chat,\nsubmit_new_agent,\nsubmit_new_model)")
         factory = Python("agents/factory.py\n(build_orchestrator_agent)")
         forecasters = Python("ml/forecasters.py\nquick_train(model, table)")
@@ -92,6 +95,11 @@ with Diagram(
         t_telemetry = RDS("agent_telemetry\n5,000 rows (synthetic)")
         t_agents = RDS("agents\n(real, user-created)")
         t_models = RDS("ml_models\n(real, user-trained)")
+
+    # ------- Hosting -------
+    with Cluster("Hosting"):
+        hf = Docker("HF Spaces  (Docker SDK, port 7860)\nDockerfile: reflex run --env=prod --single-port")
+        local = Docker("Local dev\npython run.py  (Reflex on :3000 / :8000)")
 
     # ---------- Edges ----------
     user >> ui_home
@@ -149,5 +157,9 @@ with Diagram(
     state >> Edge(color="darkgreen") >> t_revenue
     state >> Edge(color="darkgreen") >> t_agents
     state >> Edge(color="darkgreen") >> t_models
+
+    # Hosting context (where the whole stack runs)
+    hf >> Edge(label="serves", style="dotted", color="gray") >> ui_home
+    local >> Edge(style="dotted", color="gray") >> ui_home
 
 print(f"Wrote {OUT.with_suffix('.png')}")

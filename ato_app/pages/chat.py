@@ -6,7 +6,7 @@ import reflex as rx
 
 from ato_app.components.header import header
 from ato_app.components.status_badge import status_badge
-from ato_app.pages.home import _chat_panel, _nav_link
+from ato_app.pages.home import _message_bubble, _nav_link
 from ato_app.state import State
 from ato_app.theme import (
     BG,
@@ -160,6 +160,93 @@ def _detail_card() -> rx.Component:
     )
 
 
+def _specialist_chat_panel() -> rx.Component:
+    """Chat panel bound to the specialist agent (specialist_* state)."""
+    return rx.vstack(
+        rx.hstack(
+            rx.vstack(
+                rx.text("Conversation", font_weight="600", color=TEXT_PRIMARY),
+                rx.text(
+                    "Specialist agent — single-table thread, separate from "
+                    "the orchestrator on the home page.",
+                    font_size="12px",
+                    color=TEXT_MUTED,
+                ),
+                spacing="0",
+                align="start",
+            ),
+            rx.spacer(),
+            rx.box(
+                rx.text(
+                    State.bound_table,
+                    font_size="12px",
+                    font_weight="500",
+                    color="#475569",
+                ),
+                background="#F1F5F9",
+                padding="2px 10px",
+                border_radius="9999px",
+                display="inline-block",
+            ),
+            width="100%",
+            align="center",
+            padding_bottom="12px",
+            border_bottom=f"1px solid {CARD_BORDER}",
+        ),
+        rx.box(
+            rx.cond(
+                State.specialist_messages.length() == 0,
+                rx.center(
+                    rx.text(
+                        "Start a conversation with this specialist.",
+                        color=TEXT_MUTED,
+                        font_size="13px",
+                        font_style="italic",
+                    ),
+                    height="100%",
+                ),
+                rx.foreach(State.specialist_messages, _message_bubble),
+            ),
+            flex="1",
+            overflow_y="auto",
+            padding="8px 4px",
+            min_height="320px",
+        ),
+        rx.form(
+            rx.hstack(
+                rx.input(
+                    placeholder="Ask this specialist…",
+                    value=State.specialist_chat_input,
+                    on_change=State.set_specialist_chat_input,
+                    flex="1",
+                    size="3",
+                    disabled=State.specialist_chat_busy,
+                ),
+                rx.button(
+                    rx.cond(State.specialist_chat_busy, "…", "Send"),
+                    type="submit",
+                    size="3",
+                    disabled=State.specialist_chat_busy,
+                ),
+                width="100%",
+                spacing="2",
+            ),
+            on_submit=State.submit_specialist_chat,
+            width="100%",
+            reset_on_submit=False,
+        ),
+        spacing="3",
+        align="stretch",
+        width="100%",
+        height="560px",
+        background=CARD,
+        border=f"1px solid {CARD_BORDER}",
+        border_radius=CARD_RADIUS,
+        box_shadow=CARD_SHADOW,
+        padding="16px",
+    )
+
+
 def chat_page() -> rx.Component:
     return rx.box(
         header("Agent Detail", "Conversation with a configured agent"),
@@ -167,7 +254,7 @@ def chat_page() -> rx.Component:
         rx.box(
             rx.vstack(
                 _detail_card(),
-                _chat_panel(),
+                _specialist_chat_panel(),
                 spacing="3",
                 align="stretch",
                 max_width="900px",

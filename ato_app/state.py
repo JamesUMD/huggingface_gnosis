@@ -103,15 +103,17 @@ _CAPABILITY_BY_TABLE = {
 
 
 class State(rx.State):
-    # --- Chat ---
-    messages: list[dict[str, str]] = []  # [{"role": "user"|"assistant", "content": "..."}]
-    chat_input: str = ""
-    bound_table: str = "customers"     # used by /chat/[id] specialists
-    chat_busy: bool = False
-    # When True, this chat session uses the orchestrator (home page).
-    # When False, it uses the single-table specialist for `bound_table`
-    # (the /chat/[id] dynamic page sets this False on load).
-    use_orchestrator: bool = True
+    # --- Chat: separate threads for the home orchestrator vs each specialist ---
+    # Home page (orchestrator) — shared across the whole session.
+    home_messages: list[dict[str, str]] = []
+    home_chat_input: str = ""
+    home_chat_busy: bool = False
+    # /chat/[agent_id] (specialist) — reset when a different agent is loaded.
+    specialist_messages: list[dict[str, str]] = []
+    specialist_chat_input: str = ""
+    specialist_chat_busy: bool = False
+    # Which table the active specialist agent is bound to.
+    bound_table: str = "customers"
 
     # --- Dashboard top metrics (real ops + analytical headlines) ---
     active_agents: int = 0
@@ -177,9 +179,6 @@ class State(rx.State):
 
     @rx.event
     def load_dashboard(self):
-        # Home page chat uses the orchestrator, not a single-table specialist.
-        self.use_orchestrator = True
-
         # Drop the cached orchestrator so the operations specialist's system
         # prompt picks up any newly-created agents/models on this page load.
         _reset_orchestrator()
@@ -521,38 +520,25 @@ class State(rx.State):
         if table_name == self.bound_table:
             return
         self.bound_table = table_name
-        self.messages = []
+        self.specialist_messages = []
         _reset_agent(table_name)
 
     @rx.event
-    def set_chat_input(self, value: str):
-        self.chat_input = value
+    def set_home_chat_input(self, value: str):
+        self.home_chat_input = value
 
-    @rx.event(background=True)
-    async def submit_chat(self):
-        async with self:
-            if not self.chat_input.strip() or self.chat_busy:
-                return
-            user_msg = self.chat_input.strip()
-            self.messages = self.messages + [{"role": "user", "content": user_msg}]
-            self.chat_input = ""
-            self.chat_busy = True
-            self.messages = self.messages + [{"role": "assistant", "content": ""}]
-            use_orch = self.use_orchestrator
-            bound = self.bound_table
+    @rx.event
+    def set_specialist_chat_input(self, value: str):
+        self.specialist_chat_input = value
 
-        # Pick the right agent: orchestrator on home, specialist on /chat/[id]
-        try:
-            agent = _orchestrator() if use_orch else _agent_for(bound)
-        except Exception as e:
-            async with self:
-                msgs = list(self.messages)
-                msgs[-1] = {"role": "assistant",
-                            "content": f"Failed to build agent: {e}"}
-                self.messages = msgs
-                self.chat_busy = False
-            return
+    async def _stream_response(
+        self, agent, user_msg: str, msgs_attr: str, busy_attr: str
+    ):
+        """Shared streaming routine for both chat panels.
 
+        Reads/writes the messages list named by `msgs_attr` and the busy flag
+        named by `busy_attr` so the home + specialist panels stay isolated.
+        """
         full_text = ""
         stream_failed = False
         try:
@@ -564,30 +550,91 @@ class State(rx.State):
                     continue
                 full_text += chunk
                 async with self:
-                    msgs = list(self.messages)
+                    msgs = list(getattr(self, msgs_attr))
                     msgs[-1] = {"role": "assistant", "content": full_text}
-                    self.messages = msgs
-        except Exception as stream_err:
+                    setattr(self, msgs_attr, msgs)
+        except Exception:
             stream_failed = True
             full_text = ""
-            err_msg = self._format_agent_error(stream_err)
 
         if stream_failed or not full_text:
-            # Try the synchronous path so we get the real error (e.g. billing).
             try:
-                result = agent(user_msg)
-                full_text = str(result)
+                full_text = str(agent(user_msg))
             except Exception as e:
                 full_text = self._format_agent_error(e)
 
         async with self:
-            msgs = list(self.messages)
+            msgs = list(getattr(self, msgs_attr))
             msgs[-1] = {
                 "role": "assistant",
                 "content": full_text or "(no response from model)",
             }
-            self.messages = msgs
-            self.chat_busy = False
+            setattr(self, msgs_attr, msgs)
+            setattr(self, busy_attr, False)
+
+    @rx.event(background=True)
+    async def submit_home_chat(self):
+        """Send a message to the orchestrator on the home page."""
+        async with self:
+            if not self.home_chat_input.strip() or self.home_chat_busy:
+                return
+            user_msg = self.home_chat_input.strip()
+            self.home_messages = self.home_messages + [
+                {"role": "user", "content": user_msg},
+                {"role": "assistant", "content": ""},
+            ]
+            self.home_chat_input = ""
+            self.home_chat_busy = True
+
+        try:
+            agent = _orchestrator()
+        except Exception as e:
+            async with self:
+                msgs = list(self.home_messages)
+                msgs[-1] = {
+                    "role": "assistant",
+                    "content": f"Failed to build orchestrator: {e}",
+                }
+                self.home_messages = msgs
+                self.home_chat_busy = False
+            return
+
+        await self._stream_response(
+            agent, user_msg, "home_messages", "home_chat_busy"
+        )
+
+    @rx.event(background=True)
+    async def submit_specialist_chat(self):
+        """Send a message to the single-table specialist on /chat/[agent_id]."""
+        async with self:
+            if (not self.specialist_chat_input.strip()
+                    or self.specialist_chat_busy):
+                return
+            user_msg = self.specialist_chat_input.strip()
+            self.specialist_messages = self.specialist_messages + [
+                {"role": "user", "content": user_msg},
+                {"role": "assistant", "content": ""},
+            ]
+            self.specialist_chat_input = ""
+            self.specialist_chat_busy = True
+            bound = self.bound_table
+
+        try:
+            agent = _agent_for(bound)
+        except Exception as e:
+            async with self:
+                msgs = list(self.specialist_messages)
+                msgs[-1] = {
+                    "role": "assistant",
+                    "content": f"Failed to build specialist agent: {e}",
+                }
+                self.specialist_messages = msgs
+                self.specialist_chat_busy = False
+            return
+
+        await self._stream_response(
+            agent, user_msg, "specialist_messages", "specialist_chat_busy"
+        )
 
     @staticmethod
     def _format_currency(value: float) -> str:
@@ -650,8 +697,6 @@ class State(rx.State):
 
     @rx.event
     def load_chat_agent(self):
-        # Created agents are single-table specialists, not the orchestrator.
-        self.use_orchestrator = False
         agent_id = self.router._page.params.get("agent_id", "")
         if not agent_id:
             return
@@ -672,6 +717,10 @@ class State(rx.State):
             self.chat_agent_capability = ""
             return
         aid, name, table_name, description, persona, created_at = row
+        # Only reset the conversation thread when switching to a different
+        # agent — refreshing the same agent keeps the history.
+        if self.chat_agent_id != aid:
+            self.specialist_messages = []
         self.chat_agent_id = aid
         self.chat_agent_name = name
         self.chat_agent_description = description or ""
@@ -682,7 +731,6 @@ class State(rx.State):
             "Specialist agent bound to a single table.",
         )
         self.bound_table = table_name
-        self.messages = []
         _reset_agent(table_name, persona or "")
 
     @rx.event
@@ -707,7 +755,8 @@ class State(rx.State):
                 },
             )
         self.bound_table = self.new_agent_table
-        self.messages = []
+        # Fresh thread for the newly-created agent's chat page.
+        self.specialist_messages = []
         _reset_agent(self.new_agent_table, self.new_agent_persona.strip())
         self.new_agent_name = ""
         self.new_agent_description = ""
