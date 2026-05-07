@@ -451,8 +451,16 @@ def _format_error(err: Exception) -> str:
     return f"⚠️ {type(err).__name__}: {text_}"
 
 
-def reset_specialist_thread(_choice: str):
-    return []
+def on_agent_picked(choice: str):
+    """Single combined handler for the agent dropdown change event:
+    refresh the detail markdown AND clear the conversation thread."""
+    return agent_detail(agent_id_from_choice(choice)), []
+
+
+def refresh_agent_picker():
+    """Return a fresh Dropdown component (Gradio 6 idiom for updates)."""
+    choices = agent_choices()
+    return gr.Dropdown(choices=choices, value=None)
 
 
 # ---------------------------------------------------------------------------
@@ -533,10 +541,10 @@ with gr.Blocks(title="AI Transformation Office") as demo:
             gr.Markdown("### Created Agents")
             agents_table_view = gr.Dataframe(
                 value=agents_dataframe(),
-                interactive=False, wrap=True,
+                interactive=False,
             )
 
-            with gr.Accordion("+ New Agent", open=False):
+            with gr.Accordion("+ New Agent", open=True):
                 a_name = gr.Textbox(label="Agent name",
                                     placeholder="e.g. Customer Insights Agent")
                 a_table = gr.Dropdown(TABLES, value="customers",
@@ -563,8 +571,11 @@ with gr.Blocks(title="AI Transformation Office") as demo:
         # ===================== CHAT WITH AGENT =====================
         with gr.Tab("Chat with Agent"):
             gr.Markdown("### Talk to a created agent")
+            _initial_choices = agent_choices()
             agent_picker = gr.Dropdown(
-                choices=agent_choices(), label="Select an agent",
+                choices=_initial_choices,
+                value=None,
+                label="Select an agent",
                 interactive=True,
             )
             agent_picker_refresh = gr.Button("Refresh list", size="sm")
@@ -573,22 +584,21 @@ with gr.Blocks(title="AI Transformation Office") as demo:
             )
             specialist_chat = gr.Chatbot(height=400)
             specialist_msg = gr.Textbox(
-                placeholder="Ask a question…", show_label=False,
+                placeholder="Ask a question...", show_label=False,
             )
             with gr.Row():
                 specialist_send = gr.Button("Send", variant="primary", scale=1)
                 specialist_clear = gr.Button("Clear thread", scale=0)
 
             agent_picker_refresh.click(
-                lambda: gr.update(choices=agent_choices()),
+                refresh_agent_picker,
                 outputs=agent_picker,
             )
             agent_picker.change(
-                lambda c: agent_detail(agent_id_from_choice(c)),
-                inputs=agent_picker, outputs=agent_detail_md,
+                on_agent_picked,
+                inputs=agent_picker,
+                outputs=[agent_detail_md, specialist_chat],
             )
-            agent_picker.change(reset_specialist_thread,
-                                inputs=agent_picker, outputs=specialist_chat)
 
             specialist_msg.submit(
                 stream_specialist,
@@ -608,10 +618,10 @@ with gr.Blocks(title="AI Transformation Office") as demo:
         with gr.Tab("ML Studio"):
             gr.Markdown("### Trained Models")
             models_table_view = gr.Dataframe(
-                value=models_dataframe(), interactive=False, wrap=True,
+                value=models_dataframe(), interactive=False,
             )
 
-            with gr.Accordion("+ New Model", open=False):
+            with gr.Accordion("+ New Model", open=True):
                 m_name = gr.Textbox(label="Model name",
                                     placeholder="e.g. Revenue Forecaster v1")
                 m_source = gr.Dropdown(SOURCE_TABLES,
