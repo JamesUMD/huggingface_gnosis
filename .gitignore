@@ -15,11 +15,12 @@ venv/
 .venv/
 *.egg-info/
 
-# CSV exports / generated diagrams / reference designs
+# CSV exports / reference designs
 data/data_view/
-ato_architecture.png
 docs/screenshots/
 examples/
+
+# (ato_architecture.png is committed via Git LFS — see .gitattributes)
 
 # IDE / tool internal state
 .claude/

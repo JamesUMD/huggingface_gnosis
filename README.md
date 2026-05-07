@@ -73,7 +73,9 @@ All three names work — the agent factory falls back across them. If the chat r
 
 ### Architecture
 
-A rendered architecture diagram lives at `ato_architecture.png` (gitignored — generate it locally). Regenerate it with:
+![System architecture](ato_architecture.png)
+
+Regenerate it with:
 
 ```bash
 python docs/architecture/generate.py
