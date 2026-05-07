@@ -11,10 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # HF Spaces runs containers as a non-root user with UID 1000.
 RUN useradd -m -u 1000 user
 USER user
+# `PORT=7860` is read by rxconfig.py and used for BOTH frontend_port and
+# backend_port so `reflex run --single-port` is happy.
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH \
     PYTHONUNBUFFERED=1 \
-    REFLEX_DIR=/home/user/.reflex
+    REFLEX_DIR=/home/user/.reflex \
+    PORT=7860
 
 WORKDIR /home/user/app
 
@@ -32,11 +35,10 @@ RUN reflex init --template blank --loglevel info
 
 EXPOSE 7860
 
-# `--single-port` makes Reflex 0.9+ serve both frontend and backend on one
-# port — perfect for HF Spaces which only exposes one.
+# `--single-port` makes Reflex 0.9+ serve both frontend and backend on the same
+# port. The actual port comes from rxconfig.py (which reads $PORT=7860).
 CMD ["reflex", "run", \
      "--env=prod", \
      "--single-port", \
      "--backend-host=0.0.0.0", \
-     "--backend-port=7860", \
      "--loglevel=info"]
