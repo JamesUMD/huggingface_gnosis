@@ -1,0 +1,28 @@
+*.py[cod]
+.web
+.states
+*.db
+__pycache__/
+assets/external/
+
+# Never commit secrets
+.env
+.env.*
+!.env.example
+
+# Local virtualenv + tooling
+venv/
+.venv/
+*.egg-info/
+
+# CSV exports / generated diagrams / reference designs
+data/data_view/
+ato_architecture.png
+docs/screenshots/
+examples/
+
+# IDE / tool internal state
+.claude/
+.gradio/
+.vscode/
+.web/

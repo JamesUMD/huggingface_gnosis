@@ -1,0 +1,12 @@
+gradio>=4.40.0
+plotly>=5.20
+strands-agents[anthropic]>=1.0.0
+strands-agents-tools>=0.2.0
+sqlalchemy>=2.0
+pandas>=2.0
+numpy>=1.26
+scikit-learn>=1.4
+xgboost>=2.0
+statsmodels>=0.14
+faker>=24.0
+python-dotenv>=1.0
